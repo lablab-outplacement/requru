@@ -5,7 +5,7 @@ import time
 
 from json import JSONDecodeError
 
-from proxy_provider import ProxyProvider
+from .proxy_provider import ProxyProvider
 
 
 class Nordvpn(ProxyProvider):

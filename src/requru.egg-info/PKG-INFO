@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: requru
+Version: 0.0.1
+Summary: A strong requests package
+Author-email: Vicente Valencia <vmvalencian@gmail.com>
+Requires-Python: >=3.11
+Requires-Dist: requests

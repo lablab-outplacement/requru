@@ -1,7 +1,7 @@
 import os
 import requests
 
-from proxy_provider import ProxyProvider
+from .proxy_provider import ProxyProvider
 
 
 class Proxyrack(ProxyProvider):

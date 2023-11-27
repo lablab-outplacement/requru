@@ -4,9 +4,9 @@ import requests
 import time
 from requests.models import Response
 
-from proxy_provider import ProxyProvider, ProviderParadigm
-from proxyrack import Proxyrack
-from nordvpn import Nordvpn
+from .proxy_provider import ProxyProvider, ProviderParadigm
+from .proxyrack import Proxyrack
+from .nordvpn import Nordvpn
 
 
 class Session(requests.Session):
@@ -35,10 +35,12 @@ class Session(requests.Session):
         json=None,
         retry_on_failure=True,
         max_retries: int = 3,
-        is_successful_response: Callable[[Response], bool] = lambda _r: True,
+        is_successful_response: Callable[[Response], bool] = lambda _r: 200
+        <= _r.status_code
+        < 300,
         sticky_proxies: bool = False,
         proxy_providers: list[ProxyProvider] = None,
-        retry_backoff_seconds: int = 3,
+        retry_backoff_seconds: int = 30,
     ) -> Response:
         """Constructs a :class:`Request <Request>`, prepares it and sends it.
         Returns :class:`Response <Response>` object.
