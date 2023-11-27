@@ -28,7 +28,7 @@ class Proxyrack(ProxyProvider):
                 Proxyrack.sticky_ports
             )
         proxy = f"http://{Proxyrack.USER}{option_str}:{Proxyrack.API_KEY}@{Proxyrack.DNS}:{port}"
-        print(f"Using {"sticky" if sticky else "random"} proxy {proxy}")
+        print(f"Using {'sticky' if sticky else 'random'} proxy {proxy}")
         return proxy
 
     @staticmethod
