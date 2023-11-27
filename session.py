@@ -1,127 +1,19 @@
-import os
-import time
-import random
-import requests
-from abc import ABC, abstractmethod
 from collections.abc import Callable
-from enum import StrEnum
-from json.decoder import JSONDecodeError
+
+import requests
+import time
 from requests.models import Response
-from urllib.parse import urlparse
 
-
-class ProxyProviderName(StrEnum):
-    PROXYRACK = "PROXYRACK"
-    NORDVPN = "NORDVPN"
-
-
-class ProxyProvider(ABC):
-    @abstractmethod
-    def get_proxy(self) -> str:
-        pass
-
-
-class Proxyrack(ProxyProvider):
-    USER = os.getenv("PROXYRACK_USER")
-    API_KEY = os.getenv("PROXYRACK_API_KEY")
-    AVAILABLE_OPTIONS: dict = {}
-    DNS = "premium.residential.proxyrack.net"
-    random_port = 9000
-    sticky_ports = [i for i in range(10000, 14000)]
-    _sticky_ports_index = 0
-
-    @staticmethod
-    def get_proxy(sticky: bool = False, options: dict = {}) -> str:
-        option_str = (
-            "-" + "-".join([f"{k}-{v}" for k, v in options.items()]) if options else ""
-        )
-        port = Proxyrack.random_port
-        if sticky:
-            port = Proxyrack.sticky_ports[Proxyrack._sticky_ports_index]
-            Proxyrack._sticky_ports_index = (Proxyrack._sticky_ports_index + 1) % len(
-                Proxyrack.proxy_domains
-            )
-
-        return f"http://{Proxyrack.USER}{option_str}:{Proxyrack.API_KEY}@{Proxyrack.DNS}{port}"
-
-    @staticmethod
-    def get_stats(proxy: str) -> dict:
-        r = requests.get(f"http://api.proxyrack.net/stats", proxies={"http": proxy})
-        return r.json()
-
-
-class Nordvpn(ProxyProvider):
-    _index = 0
-    updated_at = 0
-    TTL = 3600
-    API_URL = "https://api.nordvpn.com/v1/servers/recommendations?filters[country_id]=43,179&filters[servers_groups][identifier]=legacy_standard&filters[servers_technologies][identifier]=proxy_ssl&limit=15"
-    proxy_domains = []
-    DEFAULT_PORT = 89
-    USER = os.getenv("NORDVPN_USER")
-    PASSWORD = os.getenv("NORDVPN_PASSWORD")
-    EXAMPLE_PROXY_URLS = [
-        "cl33.nordvpn.com",
-        "cl34.nordvpn.com",
-        "cl35.nordvpn.com",
-        "cl36.nordvpn.com",
-        "cl37.nordvpn.com",
-        "ar56.nordvpn.com",
-        "ar58.nordvpn.com",
-    ]
-
-    @staticmethod
-    def get_best_server_domains(min_load: int = 1, max_load: int = 60):
-        if (
-            not Nordvpn.proxy_domains
-            or (time.time() - Nordvpn.updated_at) > Nordvpn.TTL
-        ):
-            try:
-                resp = requests.get(Nordvpn.API_URL).json()
-                filtered_servers = [
-                    s
-                    for s in resp
-                    if s["status"] == "online" and min_load <= s["load"] <= max_load
-                ]
-                Nordvpn.proxy_domains = [s["hostname"] for s in filtered_servers]
-
-            except JSONDecodeError:
-                print(
-                    "JSONDecodeError when fetching updated server list. Falling back to hardcoded list"
-                )
-                Nordvpn.proxy_domains = Nordvpn.EXAMPLE_PROXY_URLS
-            finally:
-                random.shuffle(Nordvpn.proxy_domains)
-                print(f"Pool now has {len(Nordvpn.proxy_domains)} servers")
-                Nordvpn.updated_at = time.time()
-                Nordvpn._index = 0
-
-    @staticmethod
-    def get_proxy() -> str:
-        Nordvpn.get_best_server_domains()
-        host = Nordvpn.proxy_domains[Nordvpn._index]
-        print(f"Using server {host}")
-        Nordvpn._index = (Nordvpn._index + 1) % len(Nordvpn.proxy_domains)
-        proxy_url = (
-            f"https://{Nordvpn.USER}:{Nordvpn.PASSWORD}@{host}:{Nordvpn.DEFAULT_PORT}"
-        )
-        return proxy_url
+from proxy_provider import ProxyProvider, ProviderParadigm
+from proxyrack import Proxyrack
+from nordvpn import Nordvpn
 
 
 class Session(requests.Session):
-    def __init__(
-        self,
-        retry_on_failure=False,
-        is_successful: Callable[[Response], bool] = None,
-        sticky_proxies: bool = False,
-        proxy_providers: list[ProxyProvider] = None,
-    ):
+    def __init__(self) -> None:
         super().__init__()
-        self.retry_on_failure = retry_on_failure
-        self.success_conditions = is_successful
-        self.proxyProviders = proxy_providers or [
-            provider for provider in ProxyProvider.__subclasses__()
-        ]
-        self.sticky_proxies = sticky_proxies
+        self.proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn]
+        self.__last_successful_provider: ProxyProvider = None
 
     def request(
         self,
@@ -135,12 +27,18 @@ class Session(requests.Session):
         auth=None,
         timeout=None,
         allow_redirects=True,
-        proxies=None,
+        proxies: dict = None,
         hooks=None,
         stream=None,
         verify=None,
         cert=None,
         json=None,
+        retry_on_failure=True,
+        max_retries: int = 3,
+        is_successful_response: Callable[[Response], bool] = lambda _r: True,
+        sticky_proxies: bool = False,
+        proxy_providers: list[ProxyProvider] = None,
+        retry_backoff_seconds: int = 3,
     ) -> Response:
         """Constructs a :class:`Request <Request>`, prepares it and sends it.
         Returns :class:`Response <Response>` object.
@@ -183,10 +81,14 @@ class Session(requests.Session):
             If Tuple, ('cert', 'key') pair.
         :rtype: requests.Response
         """
-        print(f"Requru: Requesting with proxies {self.proxies}")
-
-        for provider in self.proxyProviders:
-            proxy = provider.get_proxy()
+        proxy_providers_ = proxy_providers or self.proxy_providers
+        if proxies and proxy_providers_:
+            raise ValueError(
+                "Cannot specify both proxies and proxy_providers at the same time"
+            )
+        retries = 0
+        if self.__last_successful_provider and sticky_proxies:
+            print(f"Using last successful provider {self.__last_successful_provider}")
             r = super().request(
                 method,
                 url,
@@ -205,8 +107,96 @@ class Session(requests.Session):
                 cert,
                 json,
             )
-            if self.success_conditions(r):
-                break
+            retries += 1
+            if is_successful_response(r):
+                print("Last successful provider worked")
+                return r
 
-        print(f"Proxy used: {r.headers.get('x-proxy-id')}")
+        if proxy_providers_:
+            print(f"Using {proxy_providers_} as proxy providers")
+            sorted_providers: list[ProxyProvider] = sorted(
+                proxy_providers_, key=lambda p: p.strength, reverse=True
+            )
+            print(f"Sorted providers: {sorted_providers}")
+            for provider in sorted_providers:
+                provider_retries = 0
+                print(f"Trying provider {provider.__name__}")
+
+                print("Getting new proxy")
+                proxy = provider.get_proxy(sticky=sticky_proxies)
+                self.proxies.update({"http": proxy, "https": proxy})
+
+                while True:
+                    print(f"Request attempt {retries + 1}")
+                    r = super().request(
+                        method,
+                        url,
+                        params,
+                        data,
+                        headers,
+                        cookies,
+                        files,
+                        auth,
+                        timeout,
+                        allow_redirects,
+                        proxies,
+                        hooks,
+                        stream,
+                        verify,
+                        cert,
+                        json,
+                    )
+                    provider_retries += 1
+                    retries += 1
+                    success = is_successful_response(r)
+                    if success:
+                        self.__last_successful_provider = provider
+                    if not retry_on_failure or retries >= max_retries or success:
+                        return r
+                    if provider_retries >= provider.max_retries:
+                        print(
+                            f"Provider {provider.__name__} exhausted. Moving on to next provider"
+                        )
+                        self.proxies = {}
+                        time.sleep(retry_backoff_seconds)
+                        # go to next provider
+                        break
+
+                    # If we are using sticky proxies, we need to get a new sticky proxy.
+                    # if we are not using sticky proxies, but the provider paradigm is DIRECT, we
+                    # also need to get a new proxy.
+                    if (sticky_proxies) or (
+                        not sticky_proxies
+                        and provider.paradigm == ProviderParadigm.DIRECT
+                    ):
+                        print("Getting new proxy")
+                        proxy = provider.get_proxy(sticky=sticky_proxies)
+                        self.proxies.update({"http": proxy, "https": proxy})
+                    time.sleep(retry_backoff_seconds)
+
+        while retries < max_retries:
+            print("Using no proxy providers")
+            r = super().request(
+                method,
+                url,
+                params,
+                data,
+                headers,
+                cookies,
+                files,
+                auth,
+                timeout,
+                allow_redirects,
+                proxies,
+                hooks,
+                stream,
+                verify,
+                cert,
+                json,
+            )
+            retries += 1
+            if not retry_on_failure or is_successful_response(r):
+                return r
+            time.sleep(retry_backoff_seconds)
+
         return r
