@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "requru"
+version = "0.0.1"
+authors = [
+    { name="Vicente Valencia", email="vmvalencian@gmail.com" },
+]
+description = "A strong requests package"
+requires-python = ">=3.11"
+dependencies = [
+    "requests"
+]
+
