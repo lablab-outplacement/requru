@@ -92,7 +92,7 @@ class Session(requests.Session):
         retries = 0
         _sticky_proxies = sticky_proxies or self.sticky_proxies
         print(f"Using sticky proxies: {_sticky_proxies}")
-        if self._last_successful_provider and sticky_proxies:
+        if self._last_successful_provider and _sticky_proxies:
             print(f"Using last successful provider {self._last_successful_provider}")
             r = super().request(
                 method,
