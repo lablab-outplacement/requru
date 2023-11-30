@@ -10,10 +10,11 @@ from .nordvpn import Nordvpn
 
 
 class Session(requests.Session):
-    def __init__(self) -> None:
+    def __init__(self, sticky_proxies=False) -> None:
         super().__init__()
         self.proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn]
         self.__last_successful_provider: ProxyProvider = None
+        self.sticky_proxies = sticky_proxies
 
     def request(
         self,
@@ -89,6 +90,7 @@ class Session(requests.Session):
                 "Cannot specify both proxies and proxy_providers at the same time"
             )
         retries = 0
+        _sticky_proxies = sticky_proxies or self.sticky_proxies
         if self.__last_successful_provider and sticky_proxies:
             print(f"Using last successful provider {self.__last_successful_provider}")
             r = super().request(
@@ -125,7 +127,7 @@ class Session(requests.Session):
                 print(f"Trying provider {provider.__name__}")
 
                 print("Getting new proxy")
-                proxy = provider.get_proxy(sticky=sticky_proxies)
+                proxy = provider.get_proxy(sticky=_sticky_proxies)
                 self.proxies.update({"http": proxy, "https": proxy})
 
                 while True:
@@ -167,12 +169,12 @@ class Session(requests.Session):
                     # If we are using sticky proxies, we need to get a new sticky proxy.
                     # if we are not using sticky proxies, but the provider paradigm is DIRECT, we
                     # also need to get a new proxy.
-                    if (sticky_proxies) or (
-                        not sticky_proxies
+                    if (_sticky_proxies) or (
+                        not _sticky_proxies
                         and provider.paradigm == ProviderParadigm.DIRECT
                     ):
                         print("Getting new proxy")
-                        proxy = provider.get_proxy(sticky=sticky_proxies)
+                        proxy = provider.get_proxy(sticky=_sticky_proxies)
                         self.proxies.update({"http": proxy, "https": proxy})
                     time.sleep(retry_backoff_seconds)
 
