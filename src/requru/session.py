@@ -91,6 +91,7 @@ class Session(requests.Session):
             )
         retries = 0
         _sticky_proxies = sticky_proxies or self.sticky_proxies
+        print(f"Using sticky proxies: {_sticky_proxies}")
         if self.__last_successful_provider and sticky_proxies:
             print(f"Using last successful provider {self.__last_successful_provider}")
             r = super().request(
@@ -113,7 +114,9 @@ class Session(requests.Session):
             )
             retries += 1
             if is_successful_response(r):
-                print("Last successful provider worked")
+                print(
+                    f"Last successful provider worked with status code {r.status_code}"
+                )
                 return r
 
         if proxy_providers_:
@@ -154,7 +157,12 @@ class Session(requests.Session):
                     retries += 1
                     success = is_successful_response(r)
                     if success:
+                        print(
+                            f"Response successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
+                        )
                         self.__last_successful_provider = provider
+                    else:
+                        print(f"Response unsuccessful with status code {r.status_code}")
                     if not retry_on_failure or retries >= max_retries or success:
                         return r
                     if provider_retries >= provider.max_retries:
