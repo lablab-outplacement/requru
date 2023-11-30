@@ -13,7 +13,7 @@ class Session(requests.Session):
     def __init__(self, sticky_proxies=False) -> None:
         super().__init__()
         self.proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn]
-        self.__last_successful_provider: ProxyProvider = None
+        self._last_successful_provider: ProxyProvider = None
         self.sticky_proxies = sticky_proxies
 
     def request(
@@ -92,8 +92,8 @@ class Session(requests.Session):
         retries = 0
         _sticky_proxies = sticky_proxies or self.sticky_proxies
         print(f"Using sticky proxies: {_sticky_proxies}")
-        if self.__last_successful_provider and sticky_proxies:
-            print(f"Using last successful provider {self.__last_successful_provider}")
+        if self._last_successful_provider and sticky_proxies:
+            print(f"Using last successful provider {self._last_successful_provider}")
             r = super().request(
                 method,
                 url,
@@ -160,7 +160,7 @@ class Session(requests.Session):
                         print(
                             f"Response successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
                         )
-                        self.__last_successful_provider = provider
+                        self._last_successful_provider = provider
                     else:
                         print(f"Response unsuccessful with status code {r.status_code}")
                     if not retry_on_failure or retries >= max_retries or success:
