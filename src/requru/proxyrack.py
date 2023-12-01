@@ -15,6 +15,7 @@ class Proxyrack(ProxyProvider):
     random_port = 9000
     sticky_ports = [i for i in range(10000, 14000)]
     _sticky_ports_index = 0
+    max_retries = 20
 
     @staticmethod
     def get_proxy(sticky: bool = False, options: dict = {}) -> str:

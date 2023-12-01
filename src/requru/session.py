@@ -128,6 +128,7 @@ class Session(requests.Session):
             for provider in sorted_providers:
                 provider_retries = 0
                 print(f"Trying provider {provider.__name__}")
+                print(f"Provider max retries: {provider.max_retries}")
 
                 print("Getting new proxy")
                 proxy = provider.get_proxy(sticky=_sticky_proxies)
@@ -186,7 +187,7 @@ class Session(requests.Session):
                         self.proxies.update({"http": proxy, "https": proxy})
                     time.sleep(retry_backoff_seconds)
 
-        while retries < max_retries:
+        while retries < max_retries and not proxy_providers_:
             print("Using no proxy providers")
             r = super().request(
                 method,
