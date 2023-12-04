@@ -1,8 +1,26 @@
+from requru.proxyrack import Proxyrack
+from requru.nordvpn import Nordvpn
 from .session import Session
 
 
 def request(method, url, **kwargs):
-    with Session() as session:
+    sticky_proxies = kwargs.pop("sticky_proxies", False)
+    is_successful_response = kwargs.pop(
+        "is_successful_response", lambda _r: 200 <= _r.status_code < 300
+    )
+    retry_on_failure = kwargs.pop("retry_on_failure", True)
+    retry_backoff_seconds = kwargs.pop("retry_backoff_seconds", 30)
+    proxy_providers = kwargs.pop("proxy_providers", [Proxyrack, Nordvpn])
+    max_retries = kwargs.pop("max_retries", 10)
+    print(f"kwargs after pop: {kwargs}")
+    with Session(
+        sticky_proxies=sticky_proxies,
+        is_successful_response=is_successful_response,
+        retry_on_failure=retry_on_failure,
+        retry_backoff_seconds=retry_backoff_seconds,
+        proxy_providers=proxy_providers,
+        max_retries=max_retries,
+    ) as session:
         return session.request(method=method, url=url, **kwargs)
 
 
