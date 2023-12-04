@@ -4,6 +4,7 @@ import requests
 import time
 from requests.models import Response
 from requests.exceptions import SSLError
+from requests.adapters import HTTPAdapter
 
 from .proxy_provider import ProxyProvider, ProviderParadigm
 from .proxyrack import Proxyrack
@@ -33,6 +34,11 @@ class Session(requests.Session):
         self._retries: int = 0
         self._last_successful_provider: ProxyProvider = None
 
+    def reset_adapters(self):
+        self.adapters.clear()
+        self.mount("https://", HTTPAdapter())
+        self.mount("http://", HTTPAdapter())
+
     def request_with_providers(
         self,
         super_request_params,
@@ -58,8 +64,8 @@ class Session(requests.Session):
                     r: Response = super().request(*super_request_params)
                 except SSLError as e:
                     print(e)
-                    print("SSLError encountered. Clearing adapters")
-                    self.adapters.clear()
+                    print("SSLError encountered. Resetting adapters")
+                    self.reset_adapters()
                 provider_retries += 1
                 self._retries += 1
                 success = self.is_successful_response(r) if r else False
@@ -164,6 +170,7 @@ class Session(requests.Session):
                 "Cannot specify both proxies and proxy_providers at the same time"
             )
         self._retries = 0  # reset retries
+        r = None
 
         super_request_params = (
             method,
@@ -193,10 +200,10 @@ class Session(requests.Session):
                 r = super().request(*super_request_params)
             except SSLError as e:
                 print(e)
-                print("SSLError encountered. Clearing adapters")
-                self.adapters.clear()
+                print("SSLError encountered. Resetting adapters")
+                self.reset_adapters()
             self._retries += 1
-            if self.is_successful_response(r):
+            if r and self.is_successful_response(r):
                 print(
                     f"Last successful provider worked with status code {r.status_code}"
                 )
@@ -211,10 +218,10 @@ class Session(requests.Session):
                 r = super().request(*super_request_params)
             except SSLError as e:
                 print(e)
-                print("SSLError encountered. Clearing adapters")
-                self.adapters.clear()
+                print("SSLError encountered. Resetting adapters")
+                self.reset_adapters()
             self._retries += 1
-            if not self.retry_on_failure or self.is_successful_response(r):
+            if not self.retry_on_failure or (r and self.is_successful_response(r)):
                 return r
             time.sleep(self.retry_backoff_seconds)
 
