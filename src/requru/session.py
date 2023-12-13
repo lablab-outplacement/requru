@@ -229,3 +229,6 @@ class Session(requests.Session):
 
     def get(self, url, **kwargs):
         return self.request("get", url, **kwargs)
+
+    def post(self, url, data=None, json=None, **kwargs):
+        return self.request("POST", url, data=data, json=json, **kwargs)
