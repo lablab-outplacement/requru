@@ -3,7 +3,12 @@ from collections.abc import Callable
 import requests
 import time
 from requests.models import Response
-from requests.exceptions import SSLError
+from requests.exceptions import (
+    SSLError,
+    ProxyError,
+    ChunkedEncodingError,
+    ConnectionError,
+)
 from requests.adapters import HTTPAdapter
 
 from .proxy_provider import ProxyProvider, ProviderParadigm
@@ -33,11 +38,12 @@ class Session(requests.Session):
         self.max_retries = max_retries
         self._retries: int = 0
         self._last_successful_provider: ProxyProvider = None
+        self.reset_adapters()
 
     def reset_adapters(self):
         self.adapters.clear()
-        self.mount("https://", HTTPAdapter())
-        self.mount("http://", HTTPAdapter())
+        self.mount("https://", HTTPAdapter(max_retries=3))
+        self.mount("http://", HTTPAdapter(max_retries=3))
 
     def request_with_providers(
         self,
@@ -62,9 +68,13 @@ class Session(requests.Session):
                 print(f"Request attempt {self._retries + 1}")
                 try:
                     r: Response = super().request(*super_request_params)
-                except SSLError as e:
+                except ConnectionError as e:
                     print(e)
-                    print("SSLError encountered. Resetting adapters")
+                    print("ConnectionError encountered. Resetting adapters")
+                    self.reset_adapters()
+                except ChunkedEncodingError as e:
+                    print(e)
+                    print("ChunkedEncodingError encountered. Resetting adapters")
                     self.reset_adapters()
                 provider_retries += 1
                 self._retries += 1
@@ -198,9 +208,13 @@ class Session(requests.Session):
             print(f"Using last successful provider {self._last_successful_provider}")
             try:
                 r = super().request(*super_request_params)
-            except SSLError as e:
+            except ConnectionError as e:
                 print(e)
-                print("SSLError encountered. Resetting adapters")
+                print("ConnectionError encountered. Resetting adapters")
+                self.reset_adapters()
+            except ChunkedEncodingError as e:
+                print(e)
+                print("ChunkedEncodingError encountered. Resetting adapters")
                 self.reset_adapters()
             self._retries += 1
             if r and self.is_successful_response(r):
@@ -216,9 +230,13 @@ class Session(requests.Session):
             print("Using no proxy providers")
             try:
                 r = super().request(*super_request_params)
-            except SSLError as e:
+            except ConnectionError as e:
                 print(e)
-                print("SSLError encountered. Resetting adapters")
+                print("ConnectionError encountered. Resetting adapters")
+                self.reset_adapters()
+            except ChunkedEncodingError as e:
+                print(e)
+                print("ChunkedEncodingError encountered. Resetting adapters")
                 self.reset_adapters()
             self._retries += 1
             if not self.retry_on_failure or (r and self.is_successful_response(r)):

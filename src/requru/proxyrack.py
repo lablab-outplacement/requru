@@ -8,8 +8,8 @@ class Proxyrack(ProxyProvider):
     strength = 0.8
     sticky = True
     random = True
-    USER = "miguru"
-    API_KEY = "441628-f7565b-8c2887-f0a810-efc4df"
+    USER = os.getenv("PROXYRACK_USER")
+    API_KEY = os.getenv("PROXYRACK_API_KEY")
     AVAILABLE_OPTIONS: dict = {}
     DNS = "premium.residential.proxyrack.net"
     random_port = 9000
