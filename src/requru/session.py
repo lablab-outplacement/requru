@@ -27,6 +27,7 @@ class Session(requests.Session):
         retry_backoff_seconds=30,
         proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn],
         max_retries: int = 3,
+        country: str = None,
     ) -> None:
         super().__init__()
         self.proxy_providers: list[ProxyProvider] = proxy_providers
@@ -36,6 +37,7 @@ class Session(requests.Session):
         self.retry_backoff_seconds = retry_backoff_seconds
         self.verify = False
         self.max_retries = max_retries
+        self.country = country
         self._retries: int = 0
         self._last_successful_provider: ProxyProvider = None
         self.reset_adapters()
@@ -61,7 +63,7 @@ class Session(requests.Session):
             print(f"Provider max retries: {provider.max_retries}")
 
             print("Getting new proxy")
-            proxy = provider.get_proxy(sticky=self.sticky_proxies)
+            proxy = provider.get_proxy(sticky=self.sticky_proxies, country=self.country)
             self.proxies.update({"http": proxy, "https": proxy})
 
             while True:
@@ -111,7 +113,9 @@ class Session(requests.Session):
                     and provider.paradigm == ProviderParadigm.DIRECT
                 ):
                     print("Getting new proxy")
-                    proxy = provider.get_proxy(sticky=self.sticky_proxies)
+                    proxy = provider.get_proxy(
+                        sticky=self.sticky_proxies, country=self.country
+                    )
                     self.proxies.update({"http": proxy, "https": proxy})
                 time.sleep(self.retry_backoff_seconds)
 

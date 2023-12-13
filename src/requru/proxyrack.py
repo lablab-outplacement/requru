@@ -18,7 +18,7 @@ class Proxyrack(ProxyProvider):
     max_retries = 20
 
     @staticmethod
-    def get_proxy(sticky: bool = False, options: dict = {}) -> str:
+    def get_proxy(sticky: bool = False, **options: dict) -> str:
         option_str = (
             "-" + "-".join([f"{k}-{v}" for k, v in options.items()]) if options else ""
         )
