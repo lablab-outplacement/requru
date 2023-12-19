@@ -51,6 +51,7 @@ class Session(requests.Session):
         self,
         super_request_params,
     ):
+        url = super_request_params[1]
         print(f"Using {self.proxy_providers} as proxy providers")
         sorted_providers: list[ProxyProvider] = sorted(
             self.proxy_providers, key=lambda p: p.strength, reverse=True
@@ -68,9 +69,7 @@ class Session(requests.Session):
             print(f"Using proxy {proxy}")
 
             while True:
-                print(
-                    f"Request attempt {self._retries + 1} to url {super_request_params.get('url')}"
-                )
+                print(f"Request attempt {self._retries + 1} to url {url}")
                 try:
                     r: Response = super().request(*super_request_params)
                 except ConnectionError as e:
@@ -86,7 +85,7 @@ class Session(requests.Session):
                 success = self.is_successful_response(r) if r else False
                 if success:
                     print(
-                        f"Request to {super_request_params.get('url')} successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
+                        f"Request to {url} successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
                     )
                     self._last_successful_provider = provider
                 else:
@@ -116,9 +115,7 @@ class Session(requests.Session):
                     not self.sticky_proxies
                     and provider.paradigm == ProviderParadigm.DIRECT
                 ):
-                    print(
-                        f"Getting new proxy after unsusccessful request to {super_request_params.get('url')}"
-                    )
+                    print(f"Getting new proxy after unsusccessful request to {url}")
                     proxy = provider.get_proxy(
                         sticky=self.sticky_proxies, country=self.country
                     )
