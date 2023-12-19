@@ -12,6 +12,7 @@ def request(method, url, **kwargs):
     retry_backoff_seconds = kwargs.pop("retry_backoff_seconds", 30)
     proxy_providers = kwargs.pop("proxy_providers", [Proxyrack, Nordvpn])
     max_retries = kwargs.pop("max_retries", 10)
+    country = kwargs.pop("country", None)
     print(f"kwargs after pop: {kwargs}")
     with Session(
         sticky_proxies=sticky_proxies,
@@ -20,6 +21,7 @@ def request(method, url, **kwargs):
         retry_backoff_seconds=retry_backoff_seconds,
         proxy_providers=proxy_providers,
         max_retries=max_retries,
+        country=country,
     ) as session:
         return session.request(method=method, url=url, **kwargs)
 

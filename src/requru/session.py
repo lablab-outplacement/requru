@@ -27,6 +27,7 @@ class Session(requests.Session):
         retry_backoff_seconds=30,
         proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn],
         max_retries: int = 3,
+        country: str = None,
     ) -> None:
         super().__init__()
         self.proxy_providers: list[ProxyProvider] = proxy_providers
@@ -36,6 +37,7 @@ class Session(requests.Session):
         self.retry_backoff_seconds = retry_backoff_seconds
         self.verify = False
         self.max_retries = max_retries
+        self.country = country
         self._retries: int = 0
         self._last_successful_provider: ProxyProvider = None
         self.reset_adapters()
@@ -61,7 +63,7 @@ class Session(requests.Session):
             print(f"Provider max retries: {provider.max_retries}")
 
             print("Getting new proxy")
-            proxy = provider.get_proxy(sticky=self.sticky_proxies)
+            proxy = provider.get_proxy(sticky=self.sticky_proxies, country=self.country)
             self.proxies.update({"http": proxy, "https": proxy})
             print(f"Using proxy {proxy}")
 
@@ -117,7 +119,9 @@ class Session(requests.Session):
                     print(
                         f"Getting new proxy after unsusccessful request to {super_request_params.get('url')}"
                     )
-                    proxy = provider.get_proxy(sticky=self.sticky_proxies)
+                    proxy = provider.get_proxy(
+                        sticky=self.sticky_proxies, country=self.country
+                    )
                     self.proxies.update({"http": proxy, "https": proxy})
                     print(f"Using proxy {proxy}")
                 time.sleep(self.retry_backoff_seconds)
@@ -262,3 +266,6 @@ class Session(requests.Session):
 
     def get(self, url, **kwargs):
         return self.request("get", url, **kwargs)
+
+    def post(self, url, data=None, json=None, **kwargs):
+        return self.request("POST", url, data=data, json=json, **kwargs)

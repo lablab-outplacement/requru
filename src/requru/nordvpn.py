@@ -57,7 +57,7 @@ class Nordvpn(ProxyProvider):
                 Nordvpn._index = 0
 
     @staticmethod
-    def get_proxy(sticky=True) -> str:
+    def get_proxy(sticky=True, **options) -> str:
         Nordvpn.get_best_server_domains()
         host = Nordvpn.proxy_domains[Nordvpn._index]
         print(f"Using server {host}")
