@@ -63,9 +63,12 @@ class Session(requests.Session):
             print("Getting new proxy")
             proxy = provider.get_proxy(sticky=self.sticky_proxies)
             self.proxies.update({"http": proxy, "https": proxy})
+            print(f"Using proxy {proxy}")
 
             while True:
-                print(f"Request attempt {self._retries + 1}")
+                print(
+                    f"Request attempt {self._retries + 1} to url {super_request_params.get('url')}"
+                )
                 try:
                     r: Response = super().request(*super_request_params)
                 except ConnectionError as e:
@@ -81,7 +84,7 @@ class Session(requests.Session):
                 success = self.is_successful_response(r) if r else False
                 if success:
                     print(
-                        f"Response successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
+                        f"Request to {super_request_params.get('url')} successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
                     )
                     self._last_successful_provider = provider
                 else:
@@ -103,16 +106,20 @@ class Session(requests.Session):
                     # go to next provider
                     break
 
-                # If we are using sticky proxies, we need to get a new sticky proxy.
-                # if we are not using sticky proxies, but the provider paradigm is DIRECT, we
+                # If we are using sticky proxies, we need to get a new sticky proxy (because reaching this point implies
+                # (self.retry_on_failure and self._retries < self.max_retries and not success and provider_retries < provider.max_retries)).
+                # If we are not using sticky proxies, but the provider paradigm is DIRECT, we
                 # also need to get a new proxy.
                 if (self.sticky_proxies) or (
                     not self.sticky_proxies
                     and provider.paradigm == ProviderParadigm.DIRECT
                 ):
-                    print("Getting new proxy")
+                    print(
+                        f"Getting new proxy after unsusccessful request to {super_request_params.get('url')}"
+                    )
                     proxy = provider.get_proxy(sticky=self.sticky_proxies)
                     self.proxies.update({"http": proxy, "https": proxy})
+                    print(f"Using proxy {proxy}")
                 time.sleep(self.retry_backoff_seconds)
 
     def request(
@@ -205,8 +212,11 @@ class Session(requests.Session):
         # We do not need to get a new proxy if we are using
         # sticky proxies and we have a last successful provider used in the session
         if self._last_successful_provider and self.sticky_proxies:
-            print(f"Using last successful provider {self._last_successful_provider}")
+            print(
+                f"Using last successful provider {self._last_successful_provider}. self.proxies: {self.proxies}"
+            )
             try:
+                print(f"Making request to {url}")
                 r = super().request(*super_request_params)
             except ConnectionError as e:
                 print(e)
@@ -219,9 +229,14 @@ class Session(requests.Session):
             self._retries += 1
             if r and self.is_successful_response(r):
                 print(
-                    f"Last successful provider worked with status code {r.status_code}"
+                    f"Last successful provider {self._last_successful_provider} worked for url {url}. Status code {r.status_code}"
                 )
                 return r
+            else:
+                print(
+                    f"Last successful provider {self._last_successful_provider} did not work with status code {r.status_code if r else None}. Setting last successful provider to None"
+                )
+                self._last_successful_provider = None
 
         if self.proxy_providers:
             r = self.request_with_providers(super_request_params)
