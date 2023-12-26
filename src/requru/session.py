@@ -51,6 +51,7 @@ class Session(requests.Session):
         self,
         super_request_params,
     ):
+        get_proxy_options = dict(country=self.country) if self.country else {}
         url = super_request_params[1]
         print(f"Using {self.proxy_providers} as proxy providers")
         sorted_providers: list[ProxyProvider] = sorted(
@@ -64,7 +65,7 @@ class Session(requests.Session):
             print(f"Provider max retries: {provider.max_retries}")
 
             print("Getting new proxy")
-            proxy = provider.get_proxy(sticky=self.sticky_proxies, country=self.country)
+            proxy = provider.get_proxy(sticky=self.sticky_proxies, **get_proxy_options)
             self.proxies.update({"http": proxy, "https": proxy})
             print(f"Using proxy {proxy}")
 
@@ -117,7 +118,7 @@ class Session(requests.Session):
                 ):
                     print(f"Getting new proxy after unsusccessful request to {url}")
                     proxy = provider.get_proxy(
-                        sticky=self.sticky_proxies, country=self.country
+                        sticky=self.sticky_proxies, **get_proxy_options
                     )
                     self.proxies.update({"http": proxy, "https": proxy})
                     print(f"Using proxy {proxy}")
