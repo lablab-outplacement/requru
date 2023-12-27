@@ -83,7 +83,7 @@ class Session(requests.Session):
                     self.reset_adapters()
                 provider_retries += 1
                 self._retries += 1
-                success = self.is_successful_response(r) if r else False
+                success = self.is_successful_response(r) if r is not None else False
                 if success:
                     print(
                         f"Request to {url} successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
@@ -91,7 +91,7 @@ class Session(requests.Session):
                     self._last_successful_provider = provider
                 else:
                     print(
-                        f"Response unsuccessful with status code {r.status_code if r else None}"
+                        f"Response unsuccessful with status code {r.status_code if r is not None else None}"
                     )
                 if (
                     not self.retry_on_failure
