@@ -5,12 +5,10 @@ import time
 
 from json import JSONDecodeError
 
-from .proxy_provider import ProxyProvider
+from .proxy_provider import ProviderParadigm, ProxyProvider
 
 
 class Nordvpn(ProxyProvider):
-    sticky = True
-    random = True
     strength = 0.2
     _index = 0
     updated_at = 0
@@ -29,6 +27,7 @@ class Nordvpn(ProxyProvider):
         "ar56.nordvpn.com",
         "ar58.nordvpn.com",
     ]
+    paradigm = ProviderParadigm.DIRECT
 
     @staticmethod
     def get_best_server_domains(min_load: int = 1, max_load: int = 60):
@@ -57,7 +56,7 @@ class Nordvpn(ProxyProvider):
                 Nordvpn._index = 0
 
     @staticmethod
-    def get_proxy(sticky=True, **options) -> str:
+    def get_new_proxy() -> str:
         Nordvpn.get_best_server_domains()
         host = Nordvpn.proxy_domains[Nordvpn._index]
         print(f"Using server {host}")

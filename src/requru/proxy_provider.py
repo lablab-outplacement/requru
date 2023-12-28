@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from enum import Enum, auto
 
 
@@ -7,12 +6,12 @@ class ProviderParadigm(Enum):
     DIRECT = auto()
 
 
-class ProxyProvider(ABC):
+class ProxyProvider:
     strength: float = 0
-    max_retries: int = 3
     paradigm: ProviderParadigm = ProviderParadigm.DNS
 
-    @staticmethod
-    @abstractmethod
-    def get_proxy(sticky=False) -> str:
+    def get_new_proxy() -> str:
+        return ""
+
+    def close(self):
         pass

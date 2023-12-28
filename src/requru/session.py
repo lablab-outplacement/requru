@@ -2,6 +2,9 @@ from collections.abc import Callable
 
 import requests
 import time
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Union
 from requests.models import Response
 from requests.exceptions import (
     SSLError,
@@ -12,34 +15,44 @@ from requests.exceptions import (
 from requests.adapters import HTTPAdapter
 
 from .proxy_provider import ProxyProvider, ProviderParadigm
-from .proxyrack import Proxyrack
+from .proxyrack import ProxyrackProvider
 from .nordvpn import Nordvpn
+
+
+@dataclass
+class ProxyConfig:
+    providers: list[ProxyProvider] = field(
+        default_factory=lambda: [ProxyrackProvider()]
+    )
+    freeze_after_first_successful_request: bool = False
+    # TODO: freeze should not be used with DNS providers using random ports. Validate.
+
+
+@dataclass
+class RetryConfig:
+    retry_on_failure: bool = True
+    backoff_seconds: int = 30
+    max_tries: int = 3
+    is_successful_response: Callable[[Response], bool] = (
+        lambda _r: 200 <= _r.status_code < 300
+    )
 
 
 class Session(requests.Session):
     def __init__(
         self,
-        sticky_proxies=False,
-        is_successful_response: Callable[[Response], bool] = lambda _r: 200
-        <= _r.status_code
-        < 300,
-        retry_on_failure=True,
-        retry_backoff_seconds=30,
-        proxy_providers: list[ProxyProvider] = [Proxyrack, Nordvpn],
-        max_retries: int = 3,
-        country: str = None,
+        proxy_config: ProxyConfig = ProxyConfig(),
+        retry_config: RetryConfig = RetryConfig(),
     ) -> None:
         super().__init__()
-        self.proxy_providers: list[ProxyProvider] = proxy_providers
-        self.is_successful_response = is_successful_response
-        self.sticky_proxies = sticky_proxies
-        self.retry_on_failure = retry_on_failure
-        self.retry_backoff_seconds = retry_backoff_seconds
+        self.proxy_config = proxy_config
+        self.retry_config = retry_config
         self.verify = False
-        self.max_retries = max_retries
-        self.country = country
-        self._retries: int = 0
-        self._last_successful_provider: ProxyProvider = None
+        self._successful_requests = 0
+        self._tries: int = 0
+        self._proxies_frozen: bool = False
+        # current request params. Set by request method
+        self._super_request_params: tuple = ()
         self.reset_adapters()
 
     def reset_adapters(self):
@@ -47,82 +60,95 @@ class Session(requests.Session):
         self.mount("https://", HTTPAdapter(max_retries=3))
         self.mount("http://", HTTPAdapter(max_retries=3))
 
-    def request_with_providers(
-        self,
-        super_request_params,
-    ):
-        get_proxy_options = dict(country=self.country) if self.country else {}
-        url = super_request_params[1]
-        print(f"Using {self.proxy_providers} as proxy providers")
+    def should_get_new_proxy_after_failed_request(self, provider: ProxyProvider):
+        """
+        Determine whether we should get a new proxy after a failed request.
+        we should get a new proxy if session proxies are not frozen and either
+        provider paradigm is DNS and it is using sticky ports or provider
+        paradigm is DIRECT.
+        :param provider: ProxyProvider instance from which the new proxy is to
+        be fetched
+        """
+        return not self._proxies_frozen and (
+            provider.paradigm == ProviderParadigm.DIRECT
+            or (provider.paradigm == ProviderParadigm.DNS and provider.use_sticky_ports)
+        )
+
+    def try_super_request_and_handle_exceptions(self):
+        response: Response | None = None
+        try:
+            response = super().request(*self._super_request_params)
+        except ConnectionError as e:
+            print(e)
+            print("ConnectionError encountered. Resetting adapters")
+            self.reset_adapters()
+        except ChunkedEncodingError as e:
+            print(e)
+            print("ChunkedEncodingError encountered. Resetting adapters")
+            self.reset_adapters()
+        return response
+
+    def request_with_providers(self):
+        url = self._super_request_params[1]
+        print(f"Using {self.proxy_config.providers} as proxy providers")
         sorted_providers: list[ProxyProvider] = sorted(
-            self.proxy_providers, key=lambda p: p.strength, reverse=True
+            self.proxy_config.providers, key=lambda p: p.strength, reverse=True
         )
         print(f"Sorted providers: {sorted_providers}")
-        r = None
+        response: Response | None = None
         for provider in sorted_providers:
-            provider_retries = 0
-            print(f"Trying provider {provider.__name__}")
-            print(f"Provider max retries: {provider.max_retries}")
+            provider_tries = 0
+            print(f"Trying provider {provider.__class__.__name__}")
+            print(f"Provider max tries: {provider.max_tries_per_request}")
 
             print("Getting new proxy")
-            proxy = provider.get_proxy(sticky=self.sticky_proxies, **get_proxy_options)
+            proxy = provider.get_new_proxy()
             self.proxies.update({"http": proxy, "https": proxy})
             print(f"Using proxy {proxy}")
 
-            while True:
-                print(f"Request attempt {self._retries + 1} to url {url}")
-                try:
-                    r: Response = super().request(*super_request_params)
-                except ConnectionError as e:
-                    print(e)
-                    print("ConnectionError encountered. Resetting adapters")
-                    self.reset_adapters()
-                except ChunkedEncodingError as e:
-                    print(e)
-                    print("ChunkedEncodingError encountered. Resetting adapters")
-                    self.reset_adapters()
-                provider_retries += 1
-                self._retries += 1
-                success = self.is_successful_response(r) if r is not None else False
+            while provider_tries < provider.max_tries_per_request:
+                print(f"Request attempt {self._tries + 1} to url {url}")
+                response = self.try_super_request_and_handle_exceptions()
+                provider_tries += 1
+                self._tries += 1
+                success = (
+                    self.retry_config.is_successful_response(response)
+                    if response is not None
+                    else False
+                )
                 if success:
+                    self._successful_requests += 1
                     print(
-                        f"Request to {url} successful with status code {r.status_code}. Setting last successful provider to {provider.__name__}"
+                        f"Request to {url} successful with status code {response.status_code}. Successful requests in session: {self._successful_requests}"
                     )
-                    self._last_successful_provider = provider
+                    if (
+                        self._successful_requests == 1
+                        and self.proxy_config.freeze_after_first_successful_request
+                    ):
+                        print(
+                            f"First successful request. Freezing proxy {proxy} for future requests"
+                        )
+                        self._proxies_frozen = True
                 else:
                     print(
-                        f"Response unsuccessful with status code {r.status_code if r is not None else None}"
+                        f"Response unsuccessful with status code {response.status_code if response is not None else None}"
                     )
                 if (
-                    not self.retry_on_failure
-                    or self._retries >= self.max_retries
+                    not self.retry_config.retry_on_failure
+                    or self._tries >= self.retry_config.max_tries
                     or success
                 ):
-                    return r
-                if provider_retries >= provider.max_retries:
-                    print(
-                        f"Provider {provider.__name__} exhausted. Moving on to next provider"
-                    )
-                    self.proxies = {}
-                    time.sleep(self.retry_backoff_seconds)
-                    # go to next provider
-                    break
-
-                # If we are using sticky proxies, we need to get a new sticky proxy (because reaching this point implies
-                # (self.retry_on_failure and self._retries < self.max_retries and not success and provider_retries < provider.max_retries)).
-                # If we are not using sticky proxies, but the provider paradigm is DIRECT, we
-                # also need to get a new proxy.
-                if (self.sticky_proxies) or (
-                    not self.sticky_proxies
-                    and provider.paradigm == ProviderParadigm.DIRECT
-                ):
+                    return response
+                elif self.should_get_new_proxy_after_failed_request(provider):
                     print(f"Getting new proxy after unsusccessful request to {url}")
-                    proxy = provider.get_proxy(
-                        sticky=self.sticky_proxies, **get_proxy_options
-                    )
+                    proxy = provider.get_new_proxy()
                     self.proxies.update({"http": proxy, "https": proxy})
                     print(f"Using proxy {proxy}")
-                time.sleep(self.retry_backoff_seconds)
+                time.sleep(self.retry_config.backoff_seconds)
+            else:
+                print(
+                    f"Provider {provider.__class__.__name__} exhausted. Moving on to next provider"
+                )
 
     def request(
         self,
@@ -184,13 +210,6 @@ class Session(requests.Session):
             If Tuple, ('cert', 'key') pair.
         :rtype: requests.Response
         """
-        if proxies and self.proxy_providers:
-            raise ValueError(
-                "Cannot specify both proxies and proxy_providers at the same time"
-            )
-        self._retries = 0  # reset retries
-        r = None
-
         super_request_params = (
             method,
             url,
@@ -209,56 +228,33 @@ class Session(requests.Session):
             cert,
             json,
         )
-        print(f"Using sticky proxies: {self.sticky_proxies}")
-
-        # We do not need to get a new proxy if we are using
-        # sticky proxies and we have a last successful provider used in the session
-        if self._last_successful_provider and self.sticky_proxies:
-            print(
-                f"Using last successful provider {self._last_successful_provider}. self.proxies: {self.proxies}"
+        self._super_request_params = super_request_params
+        if proxies and self.proxy_config.providers:
+            raise ValueError(
+                "Cannot specify both proxies and proxy_providers at the same time"
             )
-            try:
-                print(f"Making request to {url}")
-                r = super().request(*super_request_params)
-            except ConnectionError as e:
-                print(e)
-                print("ConnectionError encountered. Resetting adapters")
-                self.reset_adapters()
-            except ChunkedEncodingError as e:
-                print(e)
-                print("ChunkedEncodingError encountered. Resetting adapters")
-                self.reset_adapters()
-            self._retries += 1
-            if r and self.is_successful_response(r):
-                print(
-                    f"Last successful provider {self._last_successful_provider} worked for url {url}. Status code {r.status_code}"
+        self._tries = 0  # reset tries
+        r: Response | None = None
+
+        if self.proxy_config.providers and not self._proxies_frozen:
+            r = self.request_with_providers()
+        else:
+            print(f"Proxies frozen: {self._proxies_frozen}. Proxies: {self.proxies}")
+            while self._tries < self.retry_config.max_tries:
+                r = self.try_super_request_and_handle_exceptions()
+                self._tries += 1
+                success = (
+                    self.retry_config.is_successful_response(r)
+                    if r is not None
+                    else False
                 )
-                return r
+                if not self.retry_config.retry_on_failure or (success):
+                    return r
+                time.sleep(self.retry_config.backoff_seconds)
             else:
                 print(
-                    f"Last successful provider {self._last_successful_provider} did not work with status code {r.status_code if r else None}. Setting last successful provider to None"
+                    f"Exhausted all tries. Last response status code: {r.status_code if r is not None else None}"
                 )
-                self._last_successful_provider = None
-
-        if self.proxy_providers:
-            r = self.request_with_providers(super_request_params)
-
-        while self._retries < self.max_retries and not self.proxy_providers:
-            print("Using no proxy providers")
-            try:
-                r = super().request(*super_request_params)
-            except ConnectionError as e:
-                print(e)
-                print("ConnectionError encountered. Resetting adapters")
-                self.reset_adapters()
-            except ChunkedEncodingError as e:
-                print(e)
-                print("ChunkedEncodingError encountered. Resetting adapters")
-                self.reset_adapters()
-            self._retries += 1
-            if not self.retry_on_failure or (r and self.is_successful_response(r)):
-                return r
-            time.sleep(self.retry_backoff_seconds)
 
         return r
 
@@ -267,3 +263,12 @@ class Session(requests.Session):
 
     def post(self, url, data=None, json=None, **kwargs):
         return self.request("POST", url, data=data, json=json, **kwargs)
+
+    def close(self) -> None:
+        if self.proxy_config.providers:
+            for provider in self.proxy_config.providers:
+                provider.close()
+        return super().close()
+
+    def __exit__(self, *args):
+        self.close()
