@@ -29,6 +29,9 @@ class Nordvpn(ProxyProvider):
     ]
     paradigm = ProviderParadigm.DIRECT
 
+    def __init__(self, max_tries_per_request: int = 10) -> None:
+        self.max_tries_per_request = max_tries_per_request
+
     @staticmethod
     def get_best_server_domains(min_load: int = 1, max_load: int = 60):
         if (
@@ -65,3 +68,6 @@ class Nordvpn(ProxyProvider):
             f"https://{Nordvpn.USER}:{Nordvpn.PASSWORD}@{host}:{Nordvpn.DEFAULT_PORT}"
         )
         return proxy_url
+
+    def should_get_new_proxy_after_failed_request(self) -> bool:
+        return True

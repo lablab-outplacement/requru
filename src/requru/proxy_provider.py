@@ -15,3 +15,6 @@ class ProxyProvider:
 
     def close(self):
         pass
+
+    def should_get_new_proxy_after_failed_request(self) -> bool:
+        return True

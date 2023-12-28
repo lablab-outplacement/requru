@@ -64,6 +64,9 @@ class ProxyrackProvider(ProxyProvider):
         self._proxies.append(proxy)
         return proxy
 
+    def should_get_new_proxy_after_failed_request(self) -> bool:
+        return self.use_sticky_ports
+
     def close(self):
         if self.use_sticky_ports:
             for proxy in self._proxies:

@@ -69,9 +69,9 @@ class Session(requests.Session):
         :param provider: ProxyProvider instance from which the new proxy is to
         be fetched
         """
-        return not self._proxies_frozen and (
-            provider.paradigm == ProviderParadigm.DIRECT
-            or (provider.paradigm == ProviderParadigm.DNS and provider.use_sticky_ports)
+        return (
+            not self._proxies_frozen
+            and provider.should_get_new_proxy_after_failed_request()
         )
 
     def try_super_request_and_handle_exceptions(self):
