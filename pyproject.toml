@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "requru"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
     { name="Vicente Valencia", email="vmvalencian@gmail.com" },
+    { name="Francisco Guíñez", email="francisco.guinez@miguru.ai" }
 ]
 description = "A strong requests package"
 requires-python = ">=3.11"
 dependencies = [
-    "requests"
+    "requests ~= 2.31.0",
 ]
 
