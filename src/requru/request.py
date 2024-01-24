@@ -4,11 +4,18 @@ from .session import Session
 
 
 def _pop_session_kwargs(kwargs: dict) -> dict:
-    return {
-        session_kwarg_value := session_kwarg_key: kwargs.pop(session_kwarg_key, None)
+    # Pop session kwargs
+    session_kwargs = {
+        session_kwarg_key: kwargs.pop(session_kwarg_key, None)
         for session_kwarg_key in ("proxy_config", "retry_config")
-        if session_kwarg_value is not None
     }
+    # Clean None values
+    session_kwargs = {
+        key: value
+        for key, value in session_kwargs.items()
+        if value is not None
+    }
+    return session_kwargs
 
 
 def request(method, url, **kwargs):
